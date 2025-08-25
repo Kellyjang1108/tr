@@ -2,184 +2,88 @@ import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime
 
-# 페이지 설정
-st.set_page_config(page_title="학생 관리", page_icon="📚", layout="wide")
+st.set_page_config(page_title="학생관리", page_icon="📚")
 
-# 세션 초기화
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
+# 초기화
+if 'login' not in st.session_state:
+    st.session_state.login = False
 
-# Google Sheets 연결
+# 구글시트 연결
 @st.cache_resource
-def connect_sheets():
+def connect():
     try:
         creds = Credentials.from_service_account_info(
             st.secrets["gcp_service_account"],
             scopes=["https://www.googleapis.com/auth/spreadsheets"]
         )
         client = gspread.authorize(creds)
-        sheet_url = "https://docs.google.com/spreadsheets/d/1YfyKfMv20uDYaXilc-dTlvaueR85Z5Bn-z9uiN9AO5Y/edit"
-        return client.open_by_url(sheet_url)
+        return client.open_by_key("1YfyKfMv20uDYaXilc-dTlvaueR85Z5Bn-z9uiN9AO5Y")
     except:
         return None
 
-# 데이터 읽기
-def get_data(sheet_name):
+# 시트 읽기
+def read(sheet_name):
     try:
-        sheet = connect_sheets()  # 이렇게 수정
-        if sheet:
-            worksheet = sheet.worksheet(sheet_name)
-            return pd.DataFrame(worksheet.get_all_records())
+        sheet = connect()
+        data = sheet.worksheet(sheet_name).get_all_records()
+        return pd.DataFrame(data)
     except:
-        pass
-    return pd.DataFrame()
+        return pd.DataFrame()
 
-# 데이터 저장
-def save_data(sheet_name, row_data):
+# 시트 쓰기
+def write(sheet_name, row):
     try:
-        sheet = connect_sheets()  # 이렇게 수정
-        if sheet:
-            worksheet = sheet.worksheet(sheet_name)
-            worksheet.append_row(row_data)
-            return True
+        sheet = connect()
+        sheet.worksheet(sheet_name).append_row(row)
+        return True
     except:
-        pass
-    return False
+        return False
 
-# 로그인 페이지
-if not st.session_state.logged_in:
-    st.title("📚 학생 관리 시스템")
+# 로그인
+if not st.session_state.login:
+    st.title("로그인")
+    id = st.text_input("ID")
+    pw = st.text_input("PW", type="password")
     
-    col1, col2, col3 = st.columns([1,2,1])
-    with col2:
-        with st.form("login"):
-            id = st.text_input("강사 ID")
-            pw = st.text_input("비밀번호", type="password")
-            if st.form_submit_button("로그인"):
-                df = get_data("강사_마스터")
-                if not df.empty:
-                    # 모든 값을 문자열로 변환
-                    df['강사ID'] = df['강사ID'].astype(str)
-                    df['비밀번호'] = df['비밀번호'].astype(str)
-                    
-                    valid = df[(df['teacher_id']==str(id)) & (df['password']==str(pw))]
-                    if not valid.empty:
-                        st.session_state.logged_in = True
-                        st.session_state.teacher = valid.iloc[0]['name']
-                        st.session_state.teacher_id = id
-                        st.rerun()
-                st.error("로그인 실패")
+    if st.button("로그인"):
+        df = read("강사_마스터")
+        if not df.empty:
+            # 첫번째 컬럼을 ID, 세번째를 PW로 사용
+            if len(df.columns) >= 3:
+                check = df[(df.iloc[:,0].astype(str)==id) & (df.iloc[:,2].astype(str)==pw)]
+                if not check.empty:
+                    st.session_state.login = True
+                    st.session_state.name = check.iloc[0,1]  # 두번째 컬럼이 이름
+                    st.rerun()
+        st.error("실패")
 
-# 메인 앱
+# 메인
 else:
-    # 헤더
-    col1, col2 = st.columns([3,1])
-    with col1:
-        st.title(f"👩‍🏫 {st.session_state.teacher} 선생님")
-    with col2:
-        if st.button("로그아웃"):
-            st.session_state.logged_in = False
-            st.rerun()
+    st.title(f"{st.session_state.name}님")
     
-    # 탭
-    tab1, tab2, tab3 = st.tabs(["학생 목록", "출석 체크", "진도 입력"])
+    if st.button("로그아웃"):
+        st.session_state.login = False
+        st.rerun()
     
-    # 학생 목록
+    tab1, tab2 = st.tabs(["학생", "출석"])
+    
     with tab1:
-        st.subheader("📋 학생 목록")
-        students = get_data("학생_마스터")
-        if not students.empty:
-            # 담당 학생만 표시
-            if '담당강사ID' in students.columns:
-                students = students[students['담당강사ID']==st.session_state.teacher_id]
-            st.dataframe(students)
-        else:
-            st.info("학생 데이터가 없습니다")
+        students = read("학생_마스터")
+        st.dataframe(students)
     
-    # 출석 체크
     with tab2:
-        st.subheader("✅ 출석 체크")
-        students = get_data("학생_마스터")
-        
+        students = read("학생_마스터")
         if not students.empty:
-            if '담당강사ID' in students.columns:
-                students = students[students['담당강사ID']==st.session_state.teacher_id]
-            
-            for _, student in students.iterrows():
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.write(student.get('이름', 'Unknown'))
-                with col2:
-                    if st.button("출석", key=f"p_{student.get('학생ID', _)}"):
-                        save_data("출석_기록", [
-                            datetime.now().strftime("%Y-%m-%d"),
-                            student.get('학생ID', ''),
-                            "출석",
-                            datetime.now().strftime("%H:%M"),
-                            "",
-                            st.session_state.teacher_id,
-                            ""
-                        ])
-                        st.success("✅")
-                with col3:
-                    if st.button("지각", key=f"l_{student.get('학생ID', _)}"):
-                        save_data("출석_기록", [
-                            datetime.now().strftime("%Y-%m-%d"),
-                            student.get('학생ID', ''),
-                            "지각",
-                            datetime.now().strftime("%H:%M"),
-                            "",
-                            st.session_state.teacher_id,
-                            ""
-                        ])
-                        st.warning("⏰")
-                with col4:
-                    if st.button("결석", key=f"a_{student.get('학생ID', _)}"):
-                        save_data("출석_기록", [
-                            datetime.now().strftime("%Y-%m-%d"),
-                            student.get('학생ID', ''),
-                            "결석",
-                            "",
-                            "",
-                            st.session_state.teacher_id,
-                            ""
-                        ])
-                        st.error("❌")
-    
-    # 진도 입력
-    with tab3:
-        st.subheader("📝 진도 입력")
-        students = get_data("학생_마스터")
-        
-        if not students.empty:
-            if '담당강사ID' in students.columns:
-                students = students[students['담당강사ID']==st.session_state.teacher_id]
-            
-            names = students['이름'].tolist() if '이름' in students.columns else []
-            if names:
-                student_name = st.selectbox("학생 선택", names)
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    subject = st.selectbox("과목", ["단어", "문법", "독해"])
-                    progress = st.text_input("진도", placeholder="예: 61-63일차")
-                with col2:
-                    rate = st.slider("완료율", 0, 100, 80)
-                    memo = st.text_area("메모")
-                
-                if st.button("저장"):
-                    student_id = students[students['이름']==student_name].iloc[0].get('학생ID', '')
-                    save_data("일일_기록", [
-                        f"R{datetime.now().strftime('%Y%m%d%H%M%S')}",
-                        "",
-                        student_id,
-                        datetime.now().strftime("%Y-%m-%d"),
-                        "출석",
-                        progress,
-                        f"{rate}%",
-                        memo,
-                        datetime.now().strftime("%H:%M")
-                    ])
-                    st.success("저장 완료!")
+            for i, row in students.iterrows():
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.write(row.iloc[1] if len(row) > 1 else "이름없음")
+                with c2:
+                    if st.button("출석", key=f"a{i}"):
+                        write("출석_기록", ["오늘", row.iloc[0], "출석"])
+                        st.success("✓")
+                with c3:
+                    if st.button("결석", key=f"b{i}"):
+                        write("출석_기록", ["오늘", row.iloc[0], "결석"])
+                        st.error("✗")
