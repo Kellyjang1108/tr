@@ -64,10 +64,10 @@ if not st.session_state.logged_in:
                     df['강사ID'] = df['강사ID'].astype(str)
                     df['비밀번호'] = df['비밀번호'].astype(str)
                     
-                    valid = df[(df['강사ID']==str(id)) & (df['비밀번호']==str(pw))]
+                    valid = df[(df['teacher_id']==str(id)) & (df['password']==str(pw))]
                     if not valid.empty:
                         st.session_state.logged_in = True
-                        st.session_state.teacher = valid.iloc[0]['이름']
+                        st.session_state.teacher = valid.iloc[0]['name']
                         st.session_state.teacher_id = id
                         st.rerun()
                 st.error("로그인 실패")
