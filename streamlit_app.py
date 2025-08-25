@@ -20,7 +20,8 @@ def connect_sheets():
             scopes=["https://www.googleapis.com/auth/spreadsheets"]
         )
         client = gspread.authorize(creds)
-        return client.open_by_url(st.secrets["sheet_url"])
+        sheet_url = "https://docs.google.com/spreadsheets/d/1YfyKfMv20uDYaXilc-dTlvaueR85Z5Bn-z9uiN9AO5Y/edit"
+return client.open_by_url(sheet_url)
     except:
         return None
 
