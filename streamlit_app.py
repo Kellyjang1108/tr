@@ -21,7 +21,7 @@ def connect_sheets():
         )
         client = gspread.authorize(creds)
         sheet_url = "https://docs.google.com/spreadsheets/d/1YfyKfMv20uDYaXilc-dTlvaueR85Z5Bn-z9uiN9AO5Y/edit"
-return client.open_by_url(sheet_url)
+        return client.open_by_url(sheet_url)
     except:
         return None
 
