@@ -1,36 +1,43 @@
-# streamlit_app.py 예시
 import streamlit as st
-import pandas as pd
-from google.oauth2 import service_account
 import gspread
+from google.oauth2.service_account import Credentials
 
-# 구글 시트 연결
-@st.cache_resource
-def init_connection():
-    # Streamlit secrets에서 인증 정보 가져오기
-    credentials = service_account.Credentials.from_service_account_info(
+st.title("연동 테스트")
+
+# 1. 서비스 계정 확인
+try:
+    creds = Credentials.from_service_account_info(
         st.secrets["gcp_service_account"],
         scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
-    gc = gspread.authorize(credentials)
-    return gc
+    st.success("✅ 서비스 계정 인증 성공")
+except Exception as e:
+    st.error(f"❌ 서비스 계정 오류: {e}")
+    st.stop()
 
-# 메인 앱
-st.title("📚 출석 체크 시스템")
+# 2. gspread 연결
+try:
+    client = gspread.authorize(creds)
+    st.success("✅ gspread 연결 성공")
+except Exception as e:
+    st.error(f"❌ gspread 오류: {e}")
+    st.stop()
 
-# 학생 선택
-student_name = st.selectbox("학생 이름", ["김철수", "이영희", "박민수"])
-
-# 출석 버튼
-if st.button("✅ 출석 체크"):
-    # 구글 시트에 기록
-    gc = init_connection()
-    sheet = gc.open("출석부").sheet1
+# 3. 시트 열기
+try:
+    sheet = client.open_by_key("1YfyKfMv20uDYaXilc-dTlvaueR85Z5Bn-z9uiN9AO5Y")
+    st.success("✅ 시트 열기 성공")
     
-    # 현재 시간과 함께 기록
-    from datetime import datetime
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # 4. 워크시트 목록
+    worksheets = sheet.worksheets()
+    st.write("시트 탭 목록:", [ws.title for ws in worksheets])
     
-    sheet.append_row([student_name, now, "출석"])
-    st.success(f"✅ {student_name} 학생 출석 완료!")
-    st.balloons()
+    # 5. 데이터 읽기
+    if "강사_마스터" in [ws.title for ws in worksheets]:
+        data = sheet.worksheet("강사_마스터").get_all_records()
+        st.write("강사_마스터 데이터:", data)
+    else:
+        st.warning("강사_마스터 시트가 없습니다")
+        
+except Exception as e:
+    st.error(f"❌ 시트 열기 오류: {e}")
