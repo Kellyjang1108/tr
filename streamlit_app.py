@@ -28,7 +28,7 @@ def connect_sheets():
 # 데이터 읽기
 def get_data(sheet_name):
     try:
-        sheet = connect_sheets()
+        sheet = connect_sheets()  # 이렇게 수정
         if sheet:
             worksheet = sheet.worksheet(sheet_name)
             return pd.DataFrame(worksheet.get_all_records())
@@ -39,7 +39,7 @@ def get_data(sheet_name):
 # 데이터 저장
 def save_data(sheet_name, row_data):
     try:
-        sheet = connect_sheets()
+        sheet = connect_sheets()  # 이렇게 수정
         if sheet:
             worksheet = sheet.worksheet(sheet_name)
             worksheet.append_row(row_data)
