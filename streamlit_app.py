@@ -1,331 +1,276 @@
 import streamlit as st
-import gspread
 import pandas as pd
+import gspread
 from google.oauth2.service_account import Credentials
-from datetime import datetime
+from datetime import datetime, timedelta
+import pytz
 
 # 페이지 설정
-st.set_page_config(page_title="영어 학원 관리 시스템", layout="wide")
+st.set_page_config(page_title="학생 진도 관리", layout="wide")
 
-# 스타일 추가
-st.markdown("""
-<style>
-    .student-card {
-        background-color: white;
-        border-radius: 10px;
-        padding: 20px;
-        margin-bottom: 20px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        cursor: pointer;
-    }
-    .student-icon {
-        font-size: 24px;
-        color: #4B89DC;
-    }
-    .date-text {
-        color: #666;
-        font-size: 14px;
-    }
-    .header {
-        text-align: center;
-        margin-bottom: 30px;
-    }
-    .subject-tag {
-        background-color: #E8F0FE;
-        color: #4B89DC;
-        padding: 5px 10px;
-        border-radius: 15px;
-        font-size: 12px;
-        margin-right: 5px;
-        display: inline-block;
-        margin-top: 5px;
-    }
-    .subject-box {
-        background-color: #F8F9FA;
-        border-radius: 10px;
-        padding: 20px;
-        margin-bottom: 15px;
-    }
-    .subject-title {
-        color: #4B89DC;
-        font-weight: bold;
-        margin-bottom: 10px;
-    }
-    .back-button {
-        display: inline-flex;
-        align-items: center;
-        background-color: #F1F3F5;
-        border: none;
-        color: #495057;
-        padding: 8px 16px;
-        border-radius: 4px;
-        cursor: pointer;
-        text-decoration: none;
-        margin-bottom: 20px;
-    }
-    .action-button {
-        background-color: #4B89DC;
-        color: white;
-        border: none;
-        padding: 8px 16px;
-        border-radius: 4px;
-        cursor: pointer;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# 구글 시트 연결
-def connect_to_sheets():
+# Google Sheets 연결 함수
+def connect():
     credentials = Credentials.from_service_account_info(
         st.secrets["gcp_service_account"],
         scopes=[
             "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
+            "https://www.googleapis.com/auth/drive",
         ],
     )
     client = gspread.authorize(credentials)
-    sheet_id = "1YfyKfMv20uDYaXilc-dTlvaueR85Z5Bn-z9uiN9AO5Y"
-    return client.open_by_key(sheet_id)
+    return client
 
-# 시트에서 데이터 읽기
-def read(worksheet_name):
-    sheet = connect_to_sheets()
-    try:
-        worksheet = sheet.worksheet(worksheet_name)
-        data = worksheet.get_all_records()
-        return pd.DataFrame(data) if data else pd.DataFrame()
-    except Exception as e:
-        st.error(f"시트 읽기 오류: {e}")
-        return pd.DataFrame()
+# 데이터 읽기 함수
+def read(sheet_name):
+    client = connect()
+    # st.secrets에서 스프레드시트 ID 가져오기
+    spreadsheet_id = st.secrets["general"]["spreadsheet_id"]
+    sheet = client.open_by_key(spreadsheet_id).worksheet(sheet_name)
+    data = sheet.get_all_records()
+    return pd.DataFrame(data)
 
-# 시트에 데이터 쓰기
-def write(df, worksheet_name):
-    sheet = connect_to_sheets()
-    try:
-        worksheet = sheet.worksheet(worksheet_name)
-        worksheet.clear()
-        if not df.empty:
-            worksheet.update([df.columns.tolist()] + df.values.tolist())
-        return True
-    except Exception as e:
-        st.error(f"시트 쓰기 오류: {e}")
-        return False
-
-# 현재 날짜 가져오기
-def get_today():
-    return datetime.now().strftime("%Y년 %m월 %d일")
-
-# 세션 상태 초기화
-if 'view' not in st.session_state:
-    st.session_state.view = 'list'  # 'list' 또는 'detail'
-if 'selected_student' not in st.session_state:
-    st.session_state.selected_student = None
-
-# 상세 페이지로 이동하는 함수
-def view_student_detail(student):
-    st.session_state.selected_student = student
-    st.session_state.view = 'detail'
-
-# 목록 페이지로 돌아가는 함수
-def back_to_list():
-    st.session_state.view = 'list'
-    st.session_state.selected_student = None
-
-# 진도 기록 저장 함수
-def save_progress(student_id, subject, progress_text):
-    # 일일_기록 시트에서 데이터 가져오기
-    records_df = read("일일_기록")
+# 데이터 쓰기 함수
+def write(sheet_name, data, student_id=None, date=None):
+    client = connect()
+    spreadsheet_id = st.secrets["general"]["spreadsheet_id"]
+    sheet = client.open_by_key(spreadsheet_id).worksheet(sheet_name)
     
-    # 오늘 날짜
-    today = datetime.now().strftime("%Y-%m-%d")
-    
-    # 기록 ID 생성 (날짜_학생ID_과목)
-    record_id = f"{today}_{student_id}_{subject}"
-    
-    # 새 기록 데이터 생성
-    new_record = {
-        '기록ID': record_id,
-        '날짜': today,
-        '학생ID': student_id,
-        '과목': subject,
-        '진도': progress_text,
-        '출석상태': '출석'  # 기본값
-    }
-    
-    # 기존 기록 확인
-    if not records_df.empty and '기록ID' in records_df.columns:
-        existing_record = records_df[records_df['기록ID'] == record_id]
+    if sheet_name == "progress":
+        # 특정 학생의 특정 날짜 데이터 업데이트
+        records = sheet.get_all_records()
+        row_idx = None
         
-        if not existing_record.empty:
-            # 기존 기록 업데이트
-            records_df = records_df[records_df['기록ID'] != record_id]
-    
-    # 새 기록 추가
-    if records_df.empty:
-        updated_records = pd.DataFrame([new_record])
-    else:
-        updated_records = pd.concat([records_df, pd.DataFrame([new_record])], ignore_index=True)
-    
-    # 저장
-    return write(updated_records, "일일_기록")
-
-# 이전 진도 가져오기 함수
-def get_previous_progress(student_id, subject):
-    # 일일_기록 시트에서 데이터 가져오기
-    records_df = read("일일_기록")
-    
-    if records_df.empty:
-        return "기록 없음"
-    
-    # 해당 학생과 과목의 기록 필터링
-    student_records = records_df[
-        (records_df['학생ID'] == student_id) & 
-        (records_df['과목'] == subject)
-    ]
-    
-    if student_records.empty:
-        return "기록 없음"
-    
-    # 날짜로 정렬 (최신 순)
-    if '날짜' in student_records.columns:
-        student_records['날짜'] = pd.to_datetime(student_records['날짜'])
-        student_records = student_records.sort_values('날짜', ascending=False)
+        for idx, record in enumerate(records):
+            if record['student_id'] == student_id and record['date'] == date:
+                row_idx = idx + 2  # +2: 헤더 행과 0-인덱스 보정
+                break
         
-        # 최신 기록 반환
-        if '진도' in student_records.columns:
-            return student_records.iloc[0]['진도']
-    
-    return "기록 없음"
+        if row_idx:
+            # 기존 레코드 업데이트
+            for col, value in data.items():
+                col_idx = sheet.find(col).col
+                sheet.update_cell(row_idx, col_idx, value)
+        else:
+            # 새 레코드 추가
+            sheet.append_row([
+                student_id, 
+                date, 
+                data.get('vocabulary', ''), 
+                data.get('listening', ''), 
+                data.get('grammar_review', ''), 
+                data.get('class_grammar', ''), 
+                data.get('reading', ''), 
+                data.get('additional', ''), 
+                data.get('feedback', ''), 
+                data.get('homework', ''), 
+                data.get('completed', False)
+            ])
+
+# 현재 날짜 (한국 시간)
+def get_kr_today():
+    kr_tz = pytz.timezone('Asia/Seoul')
+    return datetime.now(kr_tz).strftime('%Y-%m-%d')
+
+# 오늘 요일 (한국 시간)
+def get_kr_day():
+    kr_tz = pytz.timezone('Asia/Seoul')
+    days = ["월", "화", "수", "목", "금", "토", "일"]
+    return days[datetime.now(kr_tz).weekday()]
 
 # 메인 앱
 def main():
-    if st.session_state.view == 'list':
-        # 학생 목록 화면
-        st.markdown("<h1 class='header'>학생 목록</h1>", unsafe_allow_html=True)
-        
-        # 학생 데이터 가져오기
-        students_df = read("학생_마스터")
-        
-        # 테스트 데이터 (시트가 비어있거나 오류시 사용)
-        if students_df.empty:
-            test_data = {
-                '학생ID': ['S001', 'S002', 'S003'],
-                '이름': ['김민준', '이서윤', '박하은'],
-                '학년': ['초등 3학년', '초등 5학년', '중등 1학년'],
-                '수강과목': ['수학,과학', '영어,수학', '과학,영어,수학'],
-                '등록일': ['2025-01-15', '2025-02-20', '2025-03-10'],
-                '수업시간': ['오후 4:00', '오후 5:30', '오후 7:00']
-            }
-            students_df = pd.DataFrame(test_data)
-        
-        # 날짜 포맷
-        today = get_today()
-        
-        # 검색 기능
-        search = st.text_input("학생 이름 검색")
-        
-        if search:
-            filtered_df = students_df[students_df['이름'].str.contains(search)]
-        else:
-            filtered_df = students_df
-        
-        # 학생 목록을 3열로 표시
-        cols = st.columns(3)
-        
-        for i, (_, student) in enumerate(filtered_df.iterrows()):
-            col_idx = i % 3
-            
-            with cols[col_idx]:
-                # 클릭 가능한 학생 카드
-                card_html = f"""
-                <div class='student-card' onclick="parent.postMessage({{msg: 'student_clicked', student_id: '{student['학생ID']}'}}, '*')">
-                    <div style="display: flex; align-items: center;">
-                        <div class="student-icon">👤</div>
-                        <div style="margin-left: 15px;">
-                            <h3 style="margin: 0;">{student['이름']}</h3>
-                            <p class="date-text">{today}</p>
-                        </div>
-                    </div>
-                </div>
-                """
-                st.markdown(card_html, unsafe_allow_html=True)
-                
-                # JavaScript로 클릭 이벤트 처리
-                st.markdown("""
-                <script>
-                window.addEventListener('message', function(e) {
-                    if (e.data.msg === 'student_clicked') {
-                        // 이 부분은 Streamlit이 실행되는 방식 때문에 직접 JavaScript로 처리할 수 없음
-                        // 대신 버튼을 사용해서 학생 상세 페이지로 이동
-                    }
-                });
-                </script>
-                """, unsafe_allow_html=True)
-                
-                # 실제 클릭 처리를 위한 버튼 (숨김)
-                if st.button(f"상세보기: {student['이름']}", key=f"btn_{student['학생ID']}", help="학생 상세 정보 보기"):
-                    view_student_detail(student)
-                    st.experimental_rerun()
+    st.title("학생 진도 관리 시스템")
     
-    else:  # 상세 화면
-        student = st.session_state.selected_student
+    # 탭 설정
+    tab1, tab2 = st.tabs(["오늘의 수업", "전체 학생 관리"])
+    
+    with tab1:
+        st.header(f"오늘의 수업 ({get_kr_today()}, {get_kr_day()}요일)")
         
-        # 뒤로 가기 버튼
-        if st.button("← 목록으로 돌아가기", key="back_button"):
-            back_to_list()
-            st.experimental_rerun()
-        
-        # 학생 헤더 정보
-        st.markdown(f"<h1>{student['이름']} 학생</h1>", unsafe_allow_html=True)
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown(f"<p>👤 오늘 날짜: {get_today()}</p>", unsafe_allow_html=True)
-        with col2:
-            if '수업시간' in student:
-                st.markdown(f"<p>🕒 수업 시간: {student['수업시간']}</p>", unsafe_allow_html=True)
-        
-        # 오늘의 진도 섹션
-        st.markdown("<h2>오늘의 진도</h2>", unsafe_allow_html=True)
-        
-        # 과목 리스트
-        subjects = [s.strip() for s in student['수강과목'].split(',')]
-        
-        for subject in subjects:
-            with st.container():
-                st.markdown(f"<div class='subject-box'>", unsafe_allow_html=True)
-                st.markdown(f"<h3 class='subject-title'>{subject}</h3>", unsafe_allow_html=True)
-                
-                # 이전 진도 가져오기
-                previous_progress = get_previous_progress(student['학생ID'], subject)
-                st.markdown(f"<p><strong>이전 진도:</strong> {previous_progress}</p>", unsafe_allow_html=True)
-                
-                # 오늘의 진도 입력
-                progress_text = st.text_area(f"오늘 진행한 {subject} 진도", key=f"progress_{subject}")
-                
-                # 저장 버튼
-                if st.button(f"{subject} 진도 저장", key=f"save_{subject}"):
-                    if progress_text:
-                        if save_progress(student['학생ID'], subject, progress_text):
-                            st.success(f"{subject} 진도가 저장되었습니다.")
-                        else:
-                            st.error("진도 저장 중 오류가 발생했습니다.")
-                    else:
-                        st.warning("진도 내용을 입력해주세요.")
-                
-                st.markdown("</div>", unsafe_allow_html=True)
-        
-        # 오늘 끝낸 진도 기록하기
-        st.markdown("<h2>오늘 끝낸 진도 기록하기</h2>", unsafe_allow_html=True)
-        
-        progress_notes = st.text_area("오늘 완료한 진도 내용을 여기에 기록하세요.", height=200)
-        
-        if st.button("진도 기록 저장", key="save_all_progress"):
-            if progress_notes:
-                st.success("진도 기록이 저장되었습니다.")
+        # 학생 데이터 불러오기
+        try:
+            students_df = read("students")
+            # 오늘 요일에 해당하는 학생만 필터링
+            today_students = students_df[students_df["day"] == get_kr_day()]
+            
+            if len(today_students) == 0:
+                st.info("오늘 수업이 예정된 학생이 없습니다.")
             else:
-                st.warning("진도 내용을 입력해주세요.")
+                # 학생 목록을 그리드로 표시
+                cols = st.columns(3)
+                for idx, student in today_students.iterrows():
+                    col_idx = idx % 3
+                    with cols[col_idx]:
+                        if st.button(f"{student['name']} - {student['time']}"):
+                            st.session_state.selected_student = student['student_id']
+                            st.session_state.selected_student_name = student['name']
+                            st.session_state.selected_date = get_kr_today()
+                            st.session_state.view = "student_detail"
+                            st.rerun()
+        
+        except Exception as e:
+            st.error(f"데이터를 불러오는 중 오류가 발생했습니다: {e}")
+    
+    with tab2:
+        st.header("전체 학생 관리")
+        try:
+            students_df = read("students")
+            
+            # 새 학생 추가 폼
+            with st.expander("새 학생 추가"):
+                with st.form("new_student"):
+                    new_name = st.text_input("학생 이름")
+                    new_day = st.selectbox("수업 요일", ["월", "화", "수", "목", "금", "토", "일"])
+                    new_time = st.time_input("등원 시간")
+                    new_duration = st.number_input("수업 시간 (분)", min_value=30, max_value=180, step=30)
+                    
+                    if st.form_submit_button("학생 추가"):
+                        # 새 학생 ID 생성
+                        new_id = f"{len(students_df) + 1:03d}"
+                        
+                        # Google Sheets에 추가
+                        client = connect()
+                        spreadsheet_id = st.secrets["general"]["spreadsheet_id"]
+                        sheet = client.open_by_key(spreadsheet_id).worksheet("students")
+                        sheet.append_row([
+                            new_id, 
+                            new_name, 
+                            new_day, 
+                            new_time.strftime("%H:%M"), 
+                            new_duration,
+                            True
+                        ])
+                        st.success(f"{new_name} 학생이 추가되었습니다!")
+                        st.rerun()
+            
+            # 학생 목록 표시 및 관리
+            st.subheader("학생 목록")
+            for idx, student in students_df.iterrows():
+                col1, col2, col3 = st.columns([3, 1, 1])
+                with col1:
+                    st.write(f"{student['name']} - {student['day']}요일 {student['time']}")
+                with col2:
+                    if st.button("수정", key=f"edit_{student['student_id']}"):
+                        st.session_state.edit_student = student['student_id']
+                        st.rerun()
+                with col3:
+                    if st.button("진도 관리", key=f"progress_{student['student_id']}"):
+                        st.session_state.selected_student = student['student_id']
+                        st.session_state.selected_student_name = student['name']
+                        st.session_state.selected_date = get_kr_today()
+                        st.session_state.view = "student_detail"
+                        st.rerun()
+                        
+                # 학생 수정 폼
+                if "edit_student" in st.session_state and st.session_state.edit_student == student['student_id']:
+                    with st.form(f"edit_student_{student['student_id']}"):
+                        edit_name = st.text_input("학생 이름", value=student['name'])
+                        edit_day = st.selectbox("수업 요일", ["월", "화", "수", "목", "금", "토", "일"], index=["월", "화", "수", "목", "금", "토", "일"].index(student['day']))
+                        
+                        # 시간 형식 변환
+                        time_parts = student['time'].split(':')
+                        hour = int(time_parts[0])
+                        minute = int(time_parts[1]) if len(time_parts) > 1 else 0
+                        edit_time = st.time_input("등원 시간", value=datetime.strptime(f"{hour}:{minute}", "%H:%M").time())
+                        
+                        edit_duration = st.number_input("수업 시간 (분)", min_value=30, max_value=180, step=30, value=int(student['class_duration']))
+                        edit_active = st.checkbox("활성 상태", value=student['active'])
+                        
+                        if st.form_submit_button("저장"):
+                            # Google Sheets 업데이트
+                            client = connect()
+                            spreadsheet_id = st.secrets["general"]["spreadsheet_id"]
+                            sheet = client.open_by_key(spreadsheet_id).worksheet("students")
+                            row_idx = idx + 2  # 헤더 행과 0-인덱스 보정
+                            
+                            sheet.update(f"A{row_idx}:F{row_idx}", [[
+                                student['student_id'],
+                                edit_name,
+                                edit_day,
+                                edit_time.strftime("%H:%M"),
+                                edit_duration,
+                                edit_active
+                            ]])
+                            
+                            st.success("학생 정보가 업데이트되었습니다!")
+                            st.session_state.pop("edit_student", None)
+                            st.rerun()
+                        
+                        if st.form_submit_button("취소"):
+                            st.session_state.pop("edit_student", None)
+                            st.rerun()
+        
+        except Exception as e:
+            st.error(f"데이터를 불러오는 중 오류가 발생했습니다: {e}")
+    
+    # 학생 상세 페이지 뷰
+    if "view" in st.session_state and st.session_state.view == "student_detail":
+        st.title(f"{st.session_state.selected_student_name} 학생 진도 관리")
+        st.subheader(f"날짜: {st.session_state.selected_date}")
+        
+        # 날짜 선택기
+        new_date = st.date_input("다른 날짜 선택", 
+                                value=datetime.strptime(st.session_state.selected_date, "%Y-%m-%d"))
+        st.session_state.selected_date = new_date.strftime("%Y-%m-%d")
+        
+        # 진도 데이터 불러오기
+        try:
+            progress_df = read("progress")
+            student_progress = progress_df[
+                (progress_df["student_id"] == st.session_state.selected_student) & 
+                (progress_df["date"] == st.session_state.selected_date)
+            ]
+            
+            # 진도 입력 폼
+            with st.form("progress_form"):
+                vocabulary = st.text_area("단어", 
+                                         value=student_progress["vocabulary"].values[0] if not student_progress.empty else "")
+                listening = st.text_area("듣기", 
+                                        value=student_progress["listening"].values[0] if not student_progress.empty else "")
+                grammar_review = st.text_area("관리 문법", 
+                                             value=student_progress["grammar_review"].values[0] if not student_progress.empty else "")
+                class_grammar = st.text_area("수업 문법", 
+                                            value=student_progress["class_grammar"].values[0] if not student_progress.empty else "")
+                reading = st.text_area("독해", 
+                                      value=student_progress["reading"].values[0] if not student_progress.empty else "")
+                additional = st.text_area("추가 학습", 
+                                         value=student_progress["additional"].values[0] if not student_progress.empty else "")
+                feedback = st.text_area("일일 피드백", 
+                                       value=student_progress["feedback"].values[0] if not student_progress.empty else "")
+                homework = st.text_area("숙제", 
+                                       value=student_progress["homework"].values[0] if not student_progress.empty else "")
+                completed = st.checkbox("완료", 
+                                       value=student_progress["completed"].values[0] if not student_progress.empty else False)
+                
+                if st.form_submit_button("저장"):
+                    progress_data = {
+                        'vocabulary': vocabulary,
+                        'listening': listening,
+                        'grammar_review': grammar_review,
+                        'class_grammar': class_grammar,
+                        'reading': reading,
+                        'additional': additional,
+                        'feedback': feedback,
+                        'homework': homework,
+                        'completed': completed
+                    }
+                    
+                    write("progress", progress_data, 
+                         student_id=st.session_state.selected_student, 
+                         date=st.session_state.selected_date)
+                    
+                    st.success("진도 정보가 저장되었습니다!")
+            
+            # 뒤로 가기 버튼
+            if st.button("뒤로 가기"):
+                st.session_state.pop("view", None)
+                st.session_state.pop("selected_student", None)
+                st.session_state.pop("selected_student_name", None)
+                st.session_state.pop("selected_date", None)
+                st.rerun()
+        
+        except Exception as e:
+            st.error(f"진도 데이터를 불러오는 중 오류가 발생했습니다: {e}")
 
-# 앱 실행
 if __name__ == "__main__":
     main()
