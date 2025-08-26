@@ -21,6 +21,7 @@ def run_app():
     try:
         gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
         # secrets.toml에 있는 시트 ID를 사용해 스프레드시트를 엽니다.
+        # 시트 ID는 secrets.toml에 "sheet_id = '시트ID'" 형식으로 저장되어야 합니다.
         spreadsheet = gc.open_by_key(st.secrets["sheet_id"])
         worksheet = spreadsheet.sheet1
         
@@ -35,7 +36,7 @@ def run_app():
         df = get_dataframe()
     except Exception as e:
         st.error(f"구글 시트 연동 오류: {e}")
-        st.info("secrets.toml 파일의 서비스 계정 정보와 시트 ID가 올바른지 확인해주세요.")
+        st.info("secrets.toml 파일의 서비스 계정 정보와 시트 ID가 올바른지 확인해주세요. 특히 'sheet_id'가 정확히 설정되었는지 확인하세요.")
         st.stop()
         
     # --------------------
@@ -97,4 +98,3 @@ def run_app():
 # 앱을 실행합니다.
 if __name__ == "__main__":
     run_app()
-
