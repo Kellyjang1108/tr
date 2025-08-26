@@ -8,6 +8,9 @@ import pytz
 # 페이지 설정
 st.set_page_config(page_title="학생 진도 관리", layout="wide")
 
+# 스프레드시트 ID 직접 지정
+SPREADSHEET_ID = "https://docs.google.com/spreadsheets/d/1BkZhgYlXWHCItbSYVxXzni-JPu6r6XpfpCG7KGl0na8/edit"
+
 # Google Sheets 연결 함수
 def connect():
     credentials = Credentials.from_service_account_info(
