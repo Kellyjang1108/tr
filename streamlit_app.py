@@ -8,6 +8,9 @@ import pytz
 # 페이지 설정
 st.set_page_config(page_title="학생 진도 관리", layout="wide")
 
+# 스프레드시트 이름 지정
+SPREADSHEET_NAME = "학생진도관리"  # 이미 생성한 스프레드시트 이름으로 변경하세요
+
 # Google Sheets 연결 함수
 def connect():
     credentials = Credentials.from_service_account_info(
@@ -20,8 +23,44 @@ def connect():
     client = gspread.authorize(credentials)
     return client
 
-# 스프레드시트 이름 (시크릿에 의존하지 않음)
-SPREADSHEET_NAME = "학생진도관리"
+# 시트 초기화 함수
+def init_sheets():
+    client = connect()
+    
+    try:
+        # 스프레드시트 생성 또는 열기
+        try:
+            # 이미 존재하는 스프레드시트 열기
+            spreadsheet = client.open(SPREADSHEET_NAME)
+            st.success(f"'{SPREADSHEET_NAME}' 스프레드시트에 연결했습니다.")
+        except gspread.exceptions.SpreadsheetNotFound:
+            # 존재하지 않으면 새로 생성
+            spreadsheet = client.create(SPREADSHEET_NAME)
+            st.success(f"'{SPREADSHEET_NAME}' 스프레드시트를 생성했습니다.")
+        
+        # 시트 목록 가져오기
+        worksheet_names = [ws.title for ws in spreadsheet.worksheets()]
+        
+        # students 시트 확인/생성
+        if "students" not in worksheet_names:
+            students_sheet = spreadsheet.add_worksheet(title="students", rows=100, cols=20)
+            # 헤더 추가
+            students_sheet.update('A1:F1', [['student_id', 'name', 'day', 'time', 'class_duration', 'active']])
+            st.success("'students' 시트가 생성되었습니다!")
+        
+        # progress 시트 확인/생성
+        if "progress" not in worksheet_names:
+            progress_sheet = spreadsheet.add_worksheet(title="progress", rows=100, cols=20)
+            # 헤더 추가
+            progress_sheet.update('A1:K1', [['student_id', 'date', 'vocabulary', 'listening', 
+                                           'grammar_review', 'class_grammar', 'reading', 
+                                           'additional', 'feedback', 'homework', 'completed']])
+            st.success("'progress' 시트가 생성되었습니다!")
+        
+        return True
+    except Exception as e:
+        st.error(f"시트 초기화 중 오류가 발생했습니다: {e}")
+        return False
 
 # 데이터 읽기 함수
 def read(sheet_name):
@@ -78,45 +117,6 @@ def get_kr_day():
     days = ["월", "화", "수", "목", "금", "토", "일"]
     return days[datetime.now(kr_tz).weekday()]
 
-# 시트 초기화 함수
-def init_sheets():
-    client = connect()
-    
-    try:
-        # 스프레드시트 생성 또는 열기
-        try:
-            # 이미 존재하는 스프레드시트 열기
-            spreadsheet = client.open(SPREADSHEET_NAME)
-            st.success(f"'{SPREADSHEET_NAME}' 스프레드시트에 연결했습니다.")
-        except gspread.exceptions.SpreadsheetNotFound:
-            # 존재하지 않으면 새로 생성
-            spreadsheet = client.create(SPREADSHEET_NAME)
-            st.success(f"'{SPREADSHEET_NAME}' 스프레드시트를 생성했습니다.")
-        
-        # 시트 목록 가져오기
-        worksheet_names = [ws.title for ws in spreadsheet.worksheets()]
-        
-        # students 시트 확인/생성
-        if "students" not in worksheet_names:
-            students_sheet = spreadsheet.add_worksheet(title="students", rows=100, cols=20)
-            # 헤더 추가
-            students_sheet.update('A1:F1', [['student_id', 'name', 'day', 'time', 'class_duration', 'active']])
-            st.success("'students' 시트가 생성되었습니다!")
-        
-        # progress 시트 확인/생성
-        if "progress" not in worksheet_names:
-            progress_sheet = spreadsheet.add_worksheet(title="progress", rows=100, cols=20)
-            # 헤더 추가
-            progress_sheet.update('A1:K1', [['student_id', 'date', 'vocabulary', 'listening', 
-                                           'grammar_review', 'class_grammar', 'reading', 
-                                           'additional', 'feedback', 'homework', 'completed']])
-            st.success("'progress' 시트가 생성되었습니다!")
-        
-        return True
-    except Exception as e:
-        st.error(f"시트 초기화 중 오류가 발생했습니다: {e}")
-        return False
-
 # 메인 앱
 def main():
     st.title("학생 진도 관리 시스템")
@@ -135,67 +135,81 @@ def main():
         # 학생 데이터 불러오기
         try:
             students_df = read("students")
-            # 오늘 요일에 해당하는 학생만 필터링
-            today_students = students_df[students_df["day"] == get_kr_day()]
             
-            if len(today_students) == 0:
-                st.info("오늘 수업이 예정된 학생이 없습니다.")
+            # 데이터가 비어있지 않은지 확인
+            if not students_df.empty:
+                # 'day' 열이 있는지 확인
+                if 'day' in students_df.columns:
+                    # 오늘 요일에 해당하는 학생만 필터링
+                    today_day = get_kr_day()
+                    today_students = students_df[students_df["day"] == today_day]
+                    
+                    if len(today_students) == 0:
+                        st.info(f"오늘({today_day}요일) 수업이 예정된 학생이 없습니다.")
+                    else:
+                        # 학생 목록을 그리드로 표시
+                        cols = st.columns(3)
+                        for idx, student in today_students.iterrows():
+                            col_idx = idx % 3
+                            with cols[col_idx]:
+                                st.write(f"**{student['name']}**")
+                                st.write(f"시간: {student['time']}")
+                                if st.button(f"진도 관리", key=f"manage_{student['student_id']}"):
+                                    st.session_state.selected_student = student['student_id']
+                                    st.session_state.selected_student_name = student['name']
+                                    st.session_state.selected_date = get_kr_today()
+                                    st.session_state.view = "student_detail"
+                                    st.rerun()
+                else:
+                    st.error("'day' 열이 students 시트에 없습니다. 시트 구조를 확인해 주세요.")
             else:
-                # 학생 목록을 그리드로 표시
-                cols = st.columns(3)
-                for idx, student in today_students.iterrows():
-                    col_idx = idx % 3
-                    with cols[col_idx]:
-                        st.write(f"**{student['name']}**")
-                        st.write(f"시간: {student['time']}")
-                        if st.button(f"진도 관리", key=f"manage_{student['student_id']}"):
-                            st.session_state.selected_student = student['student_id']
-                            st.session_state.selected_student_name = student['name']
-                            st.session_state.selected_date = get_kr_today()
-                            st.session_state.view = "student_detail"
-                            st.rerun()
+                st.info("등록된 학생이 없습니다. '전체 학생 관리' 탭에서 학생을 추가해 주세요.")
         
         except Exception as e:
             st.error(f"데이터를 불러오는 중 오류가 발생했습니다: {e}")
-            if not st.session_state.get('sheets_initialized', False):
-                st.warning("시트가 초기화되지 않았습니다. 앱을 다시 로드해 보세요.")
+            st.info("시트 구조를 확인해 주세요. 'students' 시트에는 'student_id', 'name', 'day', 'time', 'class_duration', 'active' 열이 있어야 합니다.")
     
     with tab2:
         st.header("전체 학생 관리")
+        
+        # 새 학생 추가 폼
+        with st.expander("새 학생 추가"):
+            with st.form("new_student"):
+                new_name = st.text_input("학생 이름")
+                new_day = st.selectbox("수업 요일", ["월", "화", "수", "목", "금", "토", "일"])
+                new_time = st.time_input("등원 시간")
+                new_duration = st.number_input("수업 시간 (분)", min_value=30, max_value=180, step=30)
+                
+                if st.form_submit_button("학생 추가"):
+                    try:
+                        # 스프레드시트에 연결
+                        client = connect()
+                        sheet = client.open(SPREADSHEET_NAME).worksheet("students")
+                        
+                        # 기존 학생 데이터 가져오기
+                        existing_data = sheet.get_all_records()
+                        
+                        # 새 학생 ID 생성
+                        new_id = f"{len(existing_data) + 1:03d}"
+                        
+                        # Google Sheets에 추가
+                        sheet.append_row([
+                            new_id, 
+                            new_name, 
+                            new_day, 
+                            new_time.strftime("%H:%M"), 
+                            new_duration,
+                            True
+                        ])
+                        st.success(f"{new_name} 학생이 추가되었습니다!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"학생 추가 중 오류가 발생했습니다: {e}")
+        
+        # 학생 목록 표시
         try:
-            # 새 학생 추가 폼
-            with st.expander("새 학생 추가"):
-                with st.form("new_student"):
-                    new_name = st.text_input("학생 이름")
-                    new_day = st.selectbox("수업 요일", ["월", "화", "수", "목", "금", "토", "일"])
-                    new_time = st.time_input("등원 시간")
-                    new_duration = st.number_input("수업 시간 (분)", min_value=30, max_value=180, step=30)
-                    
-                    if st.form_submit_button("학생 추가"):
-                        try:
-                            students_df = read("students")
-                            # 새 학생 ID 생성
-                            new_id = f"{len(students_df) + 1:03d}"
-                            
-                            # Google Sheets에 추가
-                            client = connect()
-                            sheet = client.open(SPREADSHEET_NAME).worksheet("students")
-                            sheet.append_row([
-                                new_id, 
-                                new_name, 
-                                new_day, 
-                                new_time.strftime("%H:%M"), 
-                                new_duration,
-                                True
-                            ])
-                            st.success(f"{new_name} 학생이 추가되었습니다!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"학생 추가 중 오류가 발생했습니다: {e}")
-            
-            # 학생 목록 표시
             students_df = read("students")
-            if len(students_df) == 0:
+            if students_df.empty:
                 st.info("등록된 학생이 없습니다.")
             else:
                 st.subheader("학생 목록")
@@ -212,7 +226,7 @@ def main():
                             st.rerun()
         
         except Exception as e:
-            st.error(f"학생 관리 중 오류가 발생했습니다: {e}")
+            st.error(f"학생 목록을 불러오는 중 오류가 발생했습니다: {e}")
     
     # 학생 상세 페이지 뷰
     if "view" in st.session_state and st.session_state.view == "student_detail":
