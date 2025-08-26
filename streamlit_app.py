@@ -252,85 +252,131 @@ def main():
         except Exception as e:
             st.error(f"학생 목록을 불러오는 중 오류가 발생했습니다: {e}")
     
-    # 진도 기록 조회 탭
-    with tab3:
-        st.header("진도 기록 조회")
-        
-        try:
-            # 학생 목록 가져오기
-            students_df = read("students")
-            if students_df.empty:
-                st.info("등록된 학생이 없습니다.")
-            else:
-                # 학생 선택
-                student_names = students_df['name'].tolist()
-                selected_student_name = st.selectbox("학생 선택", student_names)
+with tab3:
+    st.header("진도 기록 조회")
+    
+    try:
+        # 학생 목록 가져오기
+        students_df = read("students")
+        if students_df.empty:
+            st.info("등록된 학생이 없습니다.")
+        else:
+            # 학생 선택
+            student_names = students_df['name'].tolist()
+            selected_student_name = st.selectbox("학생 선택", student_names)
+            
+            # 선택된 학생의 ID 가져오기
+            selected_student = students_df[students_df['name'] == selected_student_name].iloc[0]
+            student_id = selected_student['student_id']
+            
+            # 날짜 범위 선택
+            col1, col2 = st.columns(2)
+            with col1:
+                start_date = st.date_input("시작일", 
+                                          value=datetime.strptime(get_kr_today(), '%Y-%m-%d') - timedelta(days=30))
+            with col2:
+                end_date = st.date_input("종료일", 
+                                        value=datetime.strptime(get_kr_today(), '%Y-%m-%d'))
+            
+            # 조회 버튼
+            if st.button("진도 기록 조회"):
+                # 진도 데이터 가져오기
+                progress_df = read("progress")
                 
-                # 선택된 학생의 ID 가져오기
-                selected_student = students_df[students_df['name'] == selected_student_name].iloc[0]
-                student_id = selected_student['student_id']
+                # 선택된 학생의 지정된 날짜 범위 내 진도 기록 필터링
+                start_date_str = start_date.strftime('%Y-%m-%d')
+                end_date_str = end_date.strftime('%Y-%m-%d')
                 
-                # 날짜 범위 선택
-                col1, col2 = st.columns(2)
-                with col1:
-                    start_date = st.date_input("시작일", 
-                                              value=datetime.strptime(get_kr_today(), '%Y-%m-%d') - timedelta(days=30))
-                with col2:
-                    end_date = st.date_input("종료일", 
-                                            value=datetime.strptime(get_kr_today(), '%Y-%m-%d'))
+                student_progress = progress_df[
+                    (progress_df["student_id"] == student_id) & 
+                    (progress_df["date"] >= start_date_str) & 
+                    (progress_df["date"] <= end_date_str)
+                ]
                 
-                # 조회 버튼
-                if st.button("진도 기록 조회"):
-                    # 진도 데이터 가져오기
-                    progress_df = read("progress")
+                if student_progress.empty:
+                    st.info(f"{selected_student_name} 학생의 선택된 기간 내 진도 기록이 없습니다.")
+                else:
+                    # 날짜별로 정렬
+                    student_progress = student_progress.sort_values(by='date', ascending=False)
                     
-                    # 선택된 학생의 지정된 날짜 범위 내 진도 기록 필터링
-                    start_date_str = start_date.strftime('%Y-%m-%d')
-                    end_date_str = end_date.strftime('%Y-%m-%d')
+                    # 진도 기록 표시
+                    for _, progress in student_progress.iterrows():
+                        with st.expander(f"{progress['date']} 진도 기록"):
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.write("**단어**")
+                                st.write(progress['vocabulary'])
+                                
+                                st.write("**듣기**")
+                                st.write(progress['listening'])
+                                
+                                st.write("**관리 문법**")
+                                st.write(progress['grammar_review'])
+                                
+                                st.write("**수업 문법**")
+                                st.write(progress['class_grammar'])
+                            
+                            with col2:
+                                st.write("**독해**")
+                                st.write(progress['reading'])
+                                
+                                st.write("**추가 학습**")
+                                st.write(progress['additional'])
+                                
+                                st.write("**일일 피드백**")
+                                st.write(progress['feedback'])
+                                
+                                st.write("**숙제**")
+                                st.write(progress['homework'])
+                            
+                            st.write(f"**완료 여부**: {'완료' if progress['completed'] else '미완료'}")
                     
-                    student_progress = progress_df[
-                        (progress_df["student_id"] == student_id) & 
-                        (progress_df["date"] >= start_date_str) & 
-                        (progress_df["date"] <= end_date_str)
-                    ]
+                    # 엑셀 다운로드 버튼 추가
+                    # CSV 형식으로 다운로드
+                    csv = student_progress.to_csv(index=False)
+                    st.download_button(
+                        label="CSV 파일 다운로드",
+                        data=csv,
+                        file_name=f"{selected_student_name}_진도기록_{start_date_str}_{end_date_str}.csv",
+                        mime="text/csv",
+                    )
                     
-                    if student_progress.empty:
-                        st.info(f"{selected_student_name} 학생의 선택된 기간 내 진도 기록이 없습니다.")
-                    else:
-                        # 날짜별로 정렬
-                        student_progress = student_progress.sort_values(by='date', ascending=False)
+                    # 진도 기록 인쇄용 버전
+                    if st.button("인쇄용 버전 보기"):
+                        # 인쇄용 HTML 생성
+                        st.markdown("## 인쇄용 진도 기록")
+                        st.markdown(f"### {selected_student_name} 학생")
+                        st.markdown(f"기간: {start_date_str} ~ {end_date_str}")
                         
-                        # 진도 기록 표시
+                        # 날짜별로 정렬된 진도 기록 표시
                         for _, progress in student_progress.iterrows():
-                            with st.expander(f"{progress['date']} 진도 기록"):
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    st.write("**단어**")
-                                    st.write(progress['vocabulary'])
-                                    
-                                    st.write("**듣기**")
-                                    st.write(progress['listening'])
-                                    
-                                    st.write("**관리 문법**")
-                                    st.write(progress['grammar_review'])
-                                    
-                                    st.write("**수업 문법**")
-                                    st.write(progress['class_grammar'])
-                                
-                                with col2:
-                                    st.write("**독해**")
-                                    st.write(progress['reading'])
-                                    
-                                    st.write("**추가 학습**")
-                                    st.write(progress['additional'])
-                                    
-                                    st.write("**일일 피드백**")
-                                    st.write(progress['feedback'])
-                                    
-                                    st.write("**숙제**")
-                                    st.write(progress['homework'])
-                                
-                                st.write(f"**완료 여부**: {'완료' if progress['completed'] else '미완료'}")
+                            st.markdown(f"#### {progress['date']} 진도 기록")
+                            st.markdown("**단어**")
+                            st.markdown(f"{progress['vocabulary']}")
+                            
+                            st.markdown("**듣기**")
+                            st.markdown(f"{progress['listening']}")
+                            
+                            st.markdown("**관리 문법**")
+                            st.markdown(f"{progress['grammar_review']}")
+                            
+                            st.markdown("**수업 문법**")
+                            st.markdown(f"{progress['class_grammar']}")
+                            
+                            st.markdown("**독해**")
+                            st.markdown(f"{progress['reading']}")
+                            
+                            st.markdown("**추가 학습**")
+                            st.markdown(f"{progress['additional']}")
+                            
+                            st.markdown("**일일 피드백**")
+                            st.markdown(f"{progress['feedback']}")
+                            
+                            st.markdown("**숙제**")
+                            st.markdown(f"{progress['homework']}")
+                            
+                            st.markdown(f"**완료 여부**: {'완료' if progress['completed'] else '미완료'}")
+                            st.markdown("---")
         
         except Exception as e:
             st.error(f"진도 기록을 불러오는 중 오류가 발생했습니다: {e}")
@@ -438,73 +484,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-def generate_html_report(student_id, student_name, start_date, end_date):
-    # 진도 데이터 가져오기
-    progress_df = read("progress")
-    
-    # 선택된 학생의 지정된 날짜 범위 내 진도 기록 필터링
-    student_progress = progress_df[
-        (progress_df["student_id"] == student_id) & 
-        (progress_df["date"] >= start_date) & 
-        (progress_df["date"] <= end_date)
-    ]
-    
-    if not student_progress.empty:
-        # HTML 보고서 생성
-        html = f"""
-        <div style="font-family: 'Nanum Gothic', sans-serif; padding: 20px;">
-            <h1 style="color: #3366cc;">{student_name} 진도 보고서</h1>
-            <p>기간: {start_date} ~ {end_date}</p>
-            <hr>
-        """
-        
-        # 날짜별 진도 기록
-        for _, row in student_progress.sort_values(by='date', ascending=False).iterrows():
-            html += f"""
-            <div style="margin-bottom: 30px; border: 1px solid #ddd; padding: 15px; border-radius: 5px;">
-                <h2 style="color: #0066cc;">{row['date']}</h2>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                    <div>
-                        <h3>단어</h3>
-                        <p>{row['vocabulary']}</p>
-                        
-                        <h3>듣기</h3>
-                        <p>{row['listening']}</p>
-                        
-                        <h3>관리 문법</h3>
-                        <p>{row['grammar_review']}</p>
-                        
-                        <h3>수업 문법</h3>
-                        <p>{row['class_grammar']}</p>
-                    </div>
-                    <div>
-                        <h3>독해</h3>
-                        <p>{row['reading']}</p>
-                        
-                        <h3>추가 학습</h3>
-                        <p>{row['additional']}</p>
-                        
-                        <h3>일일 피드백</h3>
-                        <p>{row['feedback']}</p>
-                        
-                        <h3>숙제</h3>
-                        <p>{row['homework']}</p>
-                        
-                        <p><strong>완료 여부:</strong> {'완료' if row['completed'] else '미완료'}</p>
-                    </div>
-                </div>
-            </div>
-            """
-        
-        html += "</div>"
-        
-        # HTML 표시
-        st.components.v1.html(html, height=600, scrolling=True)
-        
-        # HTML 다운로드 버튼도 제공
-        st.download_button(
-            label="HTML 보고서 다운로드",
-            data=html,
-            file_name=f"{student_name}_진도보고서_{start_date}_{end_date}.html",
-            mime="text/html"
-        )
