@@ -8,9 +8,6 @@ import pytz
 # 페이지 설정
 st.set_page_config(page_title="학생 진도 관리", layout="wide")
 
-# 스프레드시트 ID 직접 지정
-SPREADSHEET_ID = "https://docs.google.com/spreadsheets/d/1BkZhgYlXWHCItbSYVxXzni-JPu6r6XpfpCG7KGl0na8/edit"
-
 # Google Sheets 연결 함수
 def connect():
     credentials = Credentials.from_service_account_info(
@@ -23,19 +20,21 @@ def connect():
     client = gspread.authorize(credentials)
     return client
 
+# 스프레드시트 이름 (시크릿에 의존하지 않음)
+SPREADSHEET_NAME = "학생진도관리"
+
 # 데이터 읽기 함수
 def read(sheet_name):
     client = connect()
-    spreadsheet_id = st.secrets["general"]["spreadsheet_id"]
-    sheet = client.open_by_key(spreadsheet_id).worksheet(sheet_name)
+    # 이름으로 스프레드시트 열기
+    sheet = client.open(SPREADSHEET_NAME).worksheet(sheet_name)
     data = sheet.get_all_records()
     return pd.DataFrame(data)
 
 # 데이터 쓰기 함수
 def write(sheet_name, data, student_id=None, date=None):
     client = connect()
-    spreadsheet_id = st.secrets["general"]["spreadsheet_id"]
-    sheet = client.open_by_key(spreadsheet_id).worksheet(sheet_name)
+    sheet = client.open(SPREADSHEET_NAME).worksheet(sheet_name)
     
     if sheet_name == "progress":
         # 특정 학생의 특정 날짜 데이터 업데이트
@@ -82,11 +81,17 @@ def get_kr_day():
 # 시트 초기화 함수
 def init_sheets():
     client = connect()
-    spreadsheet_id = st.secrets["general"]["spreadsheet_id"]
     
     try:
-        # 스프레드시트 열기
-        spreadsheet = client.open_by_key(spreadsheet_id)
+        # 스프레드시트 생성 또는 열기
+        try:
+            # 이미 존재하는 스프레드시트 열기
+            spreadsheet = client.open(SPREADSHEET_NAME)
+            st.success(f"'{SPREADSHEET_NAME}' 스프레드시트에 연결했습니다.")
+        except gspread.exceptions.SpreadsheetNotFound:
+            # 존재하지 않으면 새로 생성
+            spreadsheet = client.create(SPREADSHEET_NAME)
+            st.success(f"'{SPREADSHEET_NAME}' 스프레드시트를 생성했습니다.")
         
         # 시트 목록 가져오기
         worksheet_names = [ws.title for ws in spreadsheet.worksheets()]
@@ -152,6 +157,8 @@ def main():
         
         except Exception as e:
             st.error(f"데이터를 불러오는 중 오류가 발생했습니다: {e}")
+            if not st.session_state.get('sheets_initialized', False):
+                st.warning("시트가 초기화되지 않았습니다. 앱을 다시 로드해 보세요.")
     
     with tab2:
         st.header("전체 학생 관리")
@@ -172,8 +179,7 @@ def main():
                             
                             # Google Sheets에 추가
                             client = connect()
-                            spreadsheet_id = st.secrets["general"]["spreadsheet_id"]
-                            sheet = client.open_by_key(spreadsheet_id).worksheet("students")
+                            sheet = client.open(SPREADSHEET_NAME).worksheet("students")
                             sheet.append_row([
                                 new_id, 
                                 new_name, 
@@ -216,7 +222,7 @@ def main():
         # 날짜 선택기
         new_date = st.date_input("다른 날짜 선택", 
                                 value=datetime.strptime(st.session_state.selected_date, "%Y-%m-%d"))
-        st.session_state.selected_date = new_date.strftime("%Y-%m-%d")
+        st.session_state.selected_date = new_date.strftime('%Y-%m-%d')
         
         # 진도 데이터 불러오기
         try:
