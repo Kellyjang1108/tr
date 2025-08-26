@@ -438,3 +438,73 @@ def main():
 
 if __name__ == "__main__":
     main()
+def generate_html_report(student_id, student_name, start_date, end_date):
+    # 진도 데이터 가져오기
+    progress_df = read("progress")
+    
+    # 선택된 학생의 지정된 날짜 범위 내 진도 기록 필터링
+    student_progress = progress_df[
+        (progress_df["student_id"] == student_id) & 
+        (progress_df["date"] >= start_date) & 
+        (progress_df["date"] <= end_date)
+    ]
+    
+    if not student_progress.empty:
+        # HTML 보고서 생성
+        html = f"""
+        <div style="font-family: 'Nanum Gothic', sans-serif; padding: 20px;">
+            <h1 style="color: #3366cc;">{student_name} 진도 보고서</h1>
+            <p>기간: {start_date} ~ {end_date}</p>
+            <hr>
+        """
+        
+        # 날짜별 진도 기록
+        for _, row in student_progress.sort_values(by='date', ascending=False).iterrows():
+            html += f"""
+            <div style="margin-bottom: 30px; border: 1px solid #ddd; padding: 15px; border-radius: 5px;">
+                <h2 style="color: #0066cc;">{row['date']}</h2>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div>
+                        <h3>단어</h3>
+                        <p>{row['vocabulary']}</p>
+                        
+                        <h3>듣기</h3>
+                        <p>{row['listening']}</p>
+                        
+                        <h3>관리 문법</h3>
+                        <p>{row['grammar_review']}</p>
+                        
+                        <h3>수업 문법</h3>
+                        <p>{row['class_grammar']}</p>
+                    </div>
+                    <div>
+                        <h3>독해</h3>
+                        <p>{row['reading']}</p>
+                        
+                        <h3>추가 학습</h3>
+                        <p>{row['additional']}</p>
+                        
+                        <h3>일일 피드백</h3>
+                        <p>{row['feedback']}</p>
+                        
+                        <h3>숙제</h3>
+                        <p>{row['homework']}</p>
+                        
+                        <p><strong>완료 여부:</strong> {'완료' if row['completed'] else '미완료'}</p>
+                    </div>
+                </div>
+            </div>
+            """
+        
+        html += "</div>"
+        
+        # HTML 표시
+        st.components.v1.html(html, height=600, scrolling=True)
+        
+        # HTML 다운로드 버튼도 제공
+        st.download_button(
+            label="HTML 보고서 다운로드",
+            data=html,
+            file_name=f"{student_name}_진도보고서_{start_date}_{end_date}.html",
+            mime="text/html"
+        )
